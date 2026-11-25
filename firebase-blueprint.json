@@ -1,0 +1,211 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Registered user profile and preferences isolated from public listings.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "User display name."
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254,
+          "description": "Verified email address."
+        },
+        "language": {
+          "type": "string",
+          "enum": ["en", "hi"],
+          "description": "Preferred interface language."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of account creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": ["uid", "name", "email", "language", "createdAt", "updatedAt"]
+    },
+    "WebsiteListing": {
+      "title": "WebsiteListing",
+      "description": "A user-submitted website listing moderated by the admin before public discovery.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Submitter Firebase Auth UID."
+        },
+        "ownerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Display name of the submitter."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Website title."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 300,
+          "pattern": "^https?://.+",
+          "description": "Destination website URL."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 15,
+          "maxLength": 400,
+          "description": "Concise summary of what the website offers."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Social", "Entertainment", "Shopping", "Education", "Tools", "News", "Games", "Finance", "AI", "Other"],
+          "description": "Directory category."
+        },
+        "logo": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 90000,
+          "pattern": "^(https?://.+|data:image/(jpeg|jpg|png|webp|gif);base64,.+)",
+          "description": "Website icon URL or compressed <= 50KB base64 image."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"],
+          "description": "Moderation status controlled by admin."
+        },
+        "likesCount": {
+          "type": "integer",
+          "description": "Total number of user likes."
+        },
+        "ratingSum": {
+          "type": "integer",
+          "description": "Sum of all user star ratings."
+        },
+        "ratingCount": {
+          "type": "integer",
+          "description": "Total number of user star ratings."
+        },
+        "visitsCount": {
+          "type": "integer",
+          "description": "Total recorded visits."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of submission."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last modification."
+        }
+      },
+      "required": [
+        "ownerId",
+        "ownerName",
+        "name",
+        "url",
+        "description",
+        "category",
+        "logo",
+        "status",
+        "likesCount",
+        "ratingSum",
+        "ratingCount",
+        "visitsCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SiteLike": {
+      "title": "SiteLike",
+      "description": "Per-user like record ensuring one like per user per website.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the user who liked the website."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when liked."
+        }
+      },
+      "required": ["ownerId", "createdAt"]
+    },
+    "SiteRating": {
+      "title": "SiteRating",
+      "description": "Per-user 1-5 star rating record for an approved website.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the rating user."
+        },
+        "score": {
+          "type": "integer",
+          "description": "Star rating from 1 to 5."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when rated."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when rating was updated."
+        }
+      },
+      "required": ["ownerId", "score", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "User account records readable by the owner and admin only."
+    },
+    "/sites/{siteId}": {
+      "schema": { "$ref": "#/entities/WebsiteListing" },
+      "description": "Public directory of approved websites and moderation queue for pending/rejected sites."
+    },
+    "/sites/{siteId}/likes/{likeUserId}": {
+      "schema": { "$ref": "#/entities/SiteLike" },
+      "description": "Atomic per-user like subcollection under each website."
+    },
+    "/sites/{siteId}/ratings/{rateUserId}": {
+      "schema": { "$ref": "#/entities/SiteRating" },
+      "description": "Atomic per-user star rating subcollection under each website."
+    }
+  }
+}

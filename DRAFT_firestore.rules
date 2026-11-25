@@ -1,0 +1,238 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerified() && request.auth.token.email == 'sonukmin83@gmail.com';
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // UserAccount (/users/{userId})
+    function isValidUserAccount(data, userId) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'language', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'email', 'language', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && data.uid == request.auth.uid && data.uid.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.language in ['en', 'hi']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // WebsiteListing (/sites/{siteId})
+    function isValidWebsiteListing(data) {
+      return data.keys().hasAll([
+          'ownerId', 'ownerName', 'name', 'url', 'description', 'category',
+          'logo', 'status', 'likesCount', 'ratingSum', 'ratingCount', 'visitsCount',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'ownerName', 'name', 'url', 'description', 'category',
+          'logo', 'status', 'likesCount', 'ratingSum', 'ratingCount', 'visitsCount',
+          'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 80
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 60
+        && data.url is string && data.url.size() >= 8 && data.url.size() <= 300 && data.url.matches('^https?://.+')
+        && data.description is string && data.description.size() >= 15 && data.description.size() <= 400
+        && data.category in ['Social', 'Entertainment', 'Shopping', 'Education', 'Tools', 'News', 'Games', 'Finance', 'AI', 'Other']
+        && data.logo is string && data.logo.size() >= 8 && data.logo.size() <= 90000
+        && (data.logo.matches('^https?://.+') || data.logo.matches('^data:image/(jpeg|jpg|png|webp|gif);base64,.+'))
+        && data.status in ['pending', 'approved', 'rejected']
+        && data.likesCount is int && data.likesCount >= 0
+        && data.ratingSum is int && data.ratingSum >= 0
+        && data.ratingCount is int && data.ratingCount >= 0
+        && data.visitsCount is int && data.visitsCount >= 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // SiteLike (/sites/{siteId}/likes/{likeUserId})
+    function isValidSiteLike(data, likeUserId) {
+      return data.keys().hasAll(['ownerId', 'createdAt'])
+        && data.keys().hasOnly(['ownerId', 'createdAt'])
+        && data.ownerId is string && data.ownerId == likeUserId && data.ownerId == request.auth.uid && data.ownerId.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    // SiteRating (/sites/{siteId}/ratings/{rateUserId})
+    function isValidSiteRating(data, rateUserId) {
+      return data.keys().hasAll(['ownerId', 'score', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'score', 'createdAt', 'updatedAt'])
+        && data.ownerId is string && data.ownerId == rateUserId && data.ownerId == request.auth.uid && data.ownerId.size() <= 128
+        && data.score is int && data.score >= 1 && data.score <= 5
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId)
+        && isVerified()
+        && isOwner(userId)
+        && isValidUserAccount(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isVerified()
+        && isOwner(userId)
+        && isValidUserAccount(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'language', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /sites/{siteId} {
+      allow get: if isValidId(siteId)
+        && (existing().status == 'approved' || isOwner(existing().ownerId) || isAdmin());
+      allow list: if resource.data.status == 'approved'
+        || (isSignedIn() && resource.data.ownerId == request.auth.uid)
+        || isAdmin();
+      allow create: if isValidId(siteId)
+        && isVerified()
+        && isValidWebsiteListing(incoming())
+        && incoming().ownerId == request.auth.uid
+        && (incoming().status == 'pending' || isAdmin())
+        && incoming().likesCount == 0
+        && incoming().ratingSum == 0
+        && incoming().ratingCount == 0
+        && incoming().visitsCount == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(siteId)
+        && isVerified()
+        && isValidWebsiteListing(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Admin approves or rejects/hides listing
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+          // Action 2: Atomic Like toggle (1:1 synced with likes/{uid} doc)
+          (
+            existing().status == 'approved'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'updatedAt'])
+            && (
+              (
+                incoming().likesCount == existing().likesCount + 1
+                && !exists(/databases/$(database)/documents/sites/$(siteId)/likes/$(request.auth.uid))
+                && existsAfter(/databases/$(database)/documents/sites/$(siteId)/likes/$(request.auth.uid))
+              ) || (
+                incoming().likesCount == existing().likesCount - 1
+                && exists(/databases/$(database)/documents/sites/$(siteId)/likes/$(request.auth.uid))
+                && !existsAfter(/databases/$(database)/documents/sites/$(siteId)/likes/$(request.auth.uid))
+              )
+            )
+          ) ||
+          // Action 3: Atomic Star Rating create or update (1:1 synced with ratings/{uid} doc)
+          (
+            existing().status == 'approved'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['ratingSum', 'ratingCount', 'updatedAt'])
+            && existsAfter(/databases/$(database)/documents/sites/$(siteId)/ratings/$(request.auth.uid))
+            && (
+              (
+                !exists(/databases/$(database)/documents/sites/$(siteId)/ratings/$(request.auth.uid))
+                && incoming().ratingCount == existing().ratingCount + 1
+                && incoming().ratingSum == existing().ratingSum + getAfter(/databases/$(database)/documents/sites/$(siteId)/ratings/$(request.auth.uid)).data.score
+              ) || (
+                exists(/databases/$(database)/documents/sites/$(siteId)/ratings/$(request.auth.uid))
+                && incoming().ratingCount == existing().ratingCount
+                && incoming().ratingSum == existing().ratingSum - get(/databases/$(database)/documents/sites/$(siteId)/ratings/$(request.auth.uid)).data.score + getAfter(/databases/$(database)/documents/sites/$(siteId)/ratings/$(request.auth.uid)).data.score
+              )
+            )
+          ) ||
+          // Action 4: Record a visit (+1 only on approved sites)
+          (
+            existing().status == 'approved'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['visitsCount', 'updatedAt'])
+            && incoming().visitsCount == existing().visitsCount + 1
+          )
+        );
+      allow delete: if isValidId(siteId)
+        && isVerified()
+        && (isAdmin() || (isOwner(existing().ownerId) && existing().status != 'approved'));
+
+      // Atomic likes subcollection
+      match /likes/{likeUserId} {
+        allow get: if isValidId(siteId) && isValidId(likeUserId) && isOwner(likeUserId);
+        allow list: if false;
+        allow create: if isValidId(siteId)
+          && isValidId(likeUserId)
+          && isVerified()
+          && isOwner(likeUserId)
+          && isValidSiteLike(incoming(), likeUserId)
+          && incoming().createdAt == request.time
+          && get(/databases/$(database)/documents/sites/$(siteId)).data.status == 'approved'
+          && getAfter(/databases/$(database)/documents/sites/$(siteId)).data.likesCount == get(/databases/$(database)/documents/sites/$(siteId)).data.likesCount + 1;
+        allow update: if false;
+        allow delete: if isValidId(siteId)
+          && isValidId(likeUserId)
+          && isVerified()
+          && isOwner(likeUserId)
+          && get(/databases/$(database)/documents/sites/$(siteId)).data.status == 'approved'
+          && getAfter(/databases/$(database)/documents/sites/$(siteId)).data.likesCount == get(/databases/$(database)/documents/sites/$(siteId)).data.likesCount - 1;
+      }
+
+      // Atomic ratings subcollection
+      match /ratings/{rateUserId} {
+        allow get: if isValidId(siteId) && isValidId(rateUserId) && isOwner(rateUserId);
+        allow list: if false;
+        allow create: if isValidId(siteId)
+          && isValidId(rateUserId)
+          && isVerified()
+          && isOwner(rateUserId)
+          && isValidSiteRating(incoming(), rateUserId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && get(/databases/$(database)/documents/sites/$(siteId)).data.status == 'approved'
+          && getAfter(/databases/$(database)/documents/sites/$(siteId)).data.ratingCount == get(/databases/$(database)/documents/sites/$(siteId)).data.ratingCount + 1
+          && getAfter(/databases/$(database)/documents/sites/$(siteId)).data.ratingSum == get(/databases/$(database)/documents/sites/$(siteId)).data.ratingSum + incoming().score;
+        allow update: if isValidId(siteId)
+          && isValidId(rateUserId)
+          && isVerified()
+          && isOwner(rateUserId)
+          && isValidSiteRating(incoming(), rateUserId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['score', 'updatedAt'])
+          && get(/databases/$(database)/documents/sites/$(siteId)).data.status == 'approved'
+          && getAfter(/databases/$(database)/documents/sites/$(siteId)).data.ratingCount == get(/databases/$(database)/documents/sites/$(siteId)).data.ratingCount
+          && getAfter(/databases/$(database)/documents/sites/$(siteId)).data.ratingSum == get(/databases/$(database)/documents/sites/$(siteId)).data.ratingSum - existing().score + incoming().score;
+        allow delete: if false;
+      }
+    }
+  }
+}
